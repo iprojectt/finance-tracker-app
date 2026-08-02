@@ -12,6 +12,7 @@ import 'screens/subscriptions_screen.dart';
 import 'screens/goals_screen.dart';
 import 'screens/categories_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/more_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -130,7 +131,7 @@ class _AppShellState extends State<AppShell> {
         duration: const Duration(milliseconds: 300),
         child: _selectedIndex < 4 
             ? _screens[_selectedIndex] 
-            : const SettingsScreen(), // simplified 'More' mapping for now
+            : const MoreScreen(), // opens list of other screens
       ),
       bottomNavigationBar: SafeArea(
         child: Container(

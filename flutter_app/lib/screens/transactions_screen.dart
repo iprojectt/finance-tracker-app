@@ -161,9 +161,10 @@ class _AddTransactionSheetState extends State<_AddTransactionSheet> {
 
     return Padding(
       padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(context).viewInsets.bottom + 20),
-      child: Form(
-        key: _formKey,
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      child: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Add Transaction', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
           const SizedBox(height: 20),
           Row(children: [
@@ -199,6 +200,7 @@ class _AddTransactionSheetState extends State<_AddTransactionSheet> {
           Row(children: [
             Expanded(
               child: DropdownButtonFormField<String>(
+                isExpanded: true,
                 dropdownColor: AppColors.surfaceAlt,
                 decoration: const InputDecoration(labelText: 'Category'),
                 value: _category,
@@ -218,6 +220,7 @@ class _AddTransactionSheetState extends State<_AddTransactionSheet> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButtonFormField<String>(
+                  isExpanded: true,
                   dropdownColor: AppColors.surfaceAlt,
                   decoration: const InputDecoration(labelText: 'Subcategory'),
                   value: _subcategory,
@@ -243,6 +246,7 @@ class _AddTransactionSheetState extends State<_AddTransactionSheet> {
             ),
           ),
         ]),
+        ),
       ),
     );
   }
