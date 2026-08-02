@@ -1,0 +1,20 @@
+# Python / Backend
+backend/venv/
+backend/__pycache__/
+*.pyc
+.env
+
+# Flutter / Frontend
+flutter_app/.dart_tool/
+flutter_app/build/
+flutter_app/.pub-cache/
+flutter_app/.pub/
+flutter_app/android/.gradle/
+flutter_app/android/local.properties
+flutter_app/ios/Pods/
+flutter_app/ios/.symlinks/
+flutter_app/ios/Flutter/Flutter.podspec
+
+# System
+.DS_Store
+Thumbs.db
