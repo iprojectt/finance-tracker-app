@@ -516,10 +516,13 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            runSpacing: 12,
             children: [
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: ['day', 'month', 'year'].map((tf) {
                   final isSelected = widget.timeframe == tf;
                   return Padding(
@@ -538,6 +541,7 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
                 }).toList(),
               ),
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   IconButton(
                     padding: EdgeInsets.zero,
