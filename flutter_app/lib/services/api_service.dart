@@ -78,6 +78,9 @@ class ApiService {
   // ── Dashboard ──────────────────────────────────────────
   Future<Map<String, dynamic>> getDashboardSummary() async =>
       await get('/api/dashboard/summary');
+      
+  Future<List<dynamic>> getTrendData({String timeframe = 'day'}) async =>
+      await get('/api/dashboard/summary/trend?timeframe=$timeframe');
 
   // ── Accounts ───────────────────────────────────────────
   Future<List<dynamic>> getAccounts() async => await get('/api/accounts/');
@@ -143,7 +146,11 @@ class ApiService {
   Future<void> deleteGoal(String id) async => await delete('/api/goals/$id');
 
   // ── Categories ─────────────────────────────────────────
-  Future<List<dynamic>> getCategories() async => await get('/api/categories/');
+  Future<List<dynamic>> getCategories({String? month}) async {
+    String path = '/api/categories/';
+    if (month != null) path += '?month=$month';
+    return await get(path);
+  }
   Future<Map<String, dynamic>> createCategory(Map<String, dynamic> data) async =>
       await post('/api/categories/', data);
   Future<void> deleteCategory(String id) async => await delete('/api/categories/$id');

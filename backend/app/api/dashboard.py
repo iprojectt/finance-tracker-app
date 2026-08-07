@@ -76,3 +76,28 @@ def get_summary(user_id: str = "default_user"):
         "monthly_expenses": monthly_expenses,
         "accounts": accounts,
     }
+
+@router.get("/summary/trend")
+def get_trend(user_id: str = "default_user", timeframe: str = "day"):
+    txns = store.get_collection(user_id, "transactions")
+    totals = {}
+    for t in txns:
+        if t.get("type") == "debit":
+            t_date = t.get("date", "")
+            amt = t.get("amount", 0.0)
+            if timeframe == "day":
+                key = t_date
+            elif timeframe == "month":
+                key = t_date[:7] if len(t_date) >= 7 else t_date
+            elif timeframe == "year":
+                key = t_date[:4] if len(t_date) >= 4 else t_date
+            else:
+                key = t_date
+            totals[key] = totals.get(key, 0.0) + amt
+            
+    sorted_keys = sorted(totals.keys())
+    trend_data = [
+        {"date": k, "expense": round(totals[k], 2)}
+        for k in sorted_keys if k
+    ]
+    return trend_data

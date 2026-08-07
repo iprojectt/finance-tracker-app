@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 
@@ -79,14 +80,29 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                       backgroundColor: AppColors.surfaceAlt,
                       child: Icon(Icons.category_rounded, color: AppColors.accent, size: 18),
                     ),
-                    title: Text(cat['name'], style: const TextStyle(fontWeight: FontWeight.w600)),
+                    title: Row(
+                      children: [
+                        Expanded(child: Text(cat['name'], style: const TextStyle(fontWeight: FontWeight.w600))),
+                        Text(
+                          NumberFormat.compactCurrency(locale: 'en_IN', symbol: '₹').format(cat['total_spent'] ?? 0),
+                          style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.error, fontSize: 14),
+                        ),
+                      ],
+                    ),
                     subtitle: Text('${subs.length} subcategories', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                    children: subs.map<Widget>((s) => ListTile(
-                      dense: true,
-                      contentPadding: const EdgeInsets.only(left: 72, right: 16),
-                      title: Text(s.toString(), style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-                      leading: const Icon(Icons.subdirectory_arrow_right_rounded, size: 16, color: AppColors.border),
-                    )).toList(),
+                    children: subs.map<Widget>((s) {
+                      final subTotal = (cat['subcategory_totals'] ?? {})[s] ?? 0;
+                      return ListTile(
+                        dense: true,
+                        contentPadding: const EdgeInsets.only(left: 72, right: 32),
+                        title: Text(s.toString(), style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                        trailing: Text(
+                          NumberFormat.compactCurrency(locale: 'en_IN', symbol: '₹').format(subTotal),
+                          style: const TextStyle(color: AppColors.error, fontSize: 13, fontWeight: FontWeight.w500),
+                        ),
+                        leading: const Icon(Icons.subdirectory_arrow_right_rounded, size: 16, color: AppColors.border),
+                      );
+                    }).toList(),
                   ),
                 );
               },

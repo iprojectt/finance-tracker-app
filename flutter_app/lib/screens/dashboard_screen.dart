@@ -6,6 +6,7 @@ import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/gradient_text.dart';
+import '../main.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -15,6 +16,9 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, dynamic>? _summary;
+  List<dynamic>? _trendData;
+  String _trendTimeframe = 'month';
+  bool _loadingTrend = false;
   bool _loading = true;
   String? _error;
 
@@ -28,9 +32,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final data = await ApiService.instance.getDashboardSummary();
-      setState(() { _summary = data; _loading = false; });
+      final trendData = await ApiService.instance.getTrendData(timeframe: _trendTimeframe);
+      setState(() { _summary = data; _trendData = trendData; _loading = false; });
     } catch (e) {
       setState(() { _error = e.toString(); _loading = false; });
+    }
+  }
+
+  Future<void> _loadTrendOnly(String timeframe) async {
+    setState(() { _trendTimeframe = timeframe; _loadingTrend = true; });
+    try {
+      final trendData = await ApiService.instance.getTrendData(timeframe: timeframe);
+      if (mounted) setState(() { _trendData = trendData; _loadingTrend = false; });
+    } catch (_) {
+      if (mounted) setState(() { _loadingTrend = false; });
     }
   }
 
@@ -74,17 +89,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           const SizedBox(height: 24),
                           _MonthSummaryRow(summary: _summary!).animate(delay: 100.ms).fade(duration: 500.ms).slideY(begin: 0.1),
                           const SizedBox(height: 32),
-                          const _SectionHeader('Spending by Category').animate(delay: 200.ms).fade(),
+                          _SectionHeader('Spending by Category', onTap: () {
+                            context.findAncestorStateOfType<AppShellState>()?.navigateTo(7);
+                          }).animate(delay: 200.ms).fade(),
                           const SizedBox(height: 16),
                           _CategoryPieChart(data: _summary!['spending_by_category']).animate(delay: 250.ms).fade(duration: 500.ms).scaleXY(begin: 0.95),
                           const SizedBox(height: 32),
-                          const _SectionHeader('Monthly Trends').animate(delay: 300.ms).fade(),
+                          _SectionHeader('Monthly Trends', onTap: () {
+                            context.findAncestorStateOfType<AppShellState>()?.navigateTo(1);
+                          }).animate(delay: 260.ms).fade(),
                           const SizedBox(height: 16),
                           _MonthlyBarChart(data: _summary!['monthly_expenses']).animate(delay: 350.ms).fade(duration: 500.ms).slideY(begin: 0.1),
                           const SizedBox(height: 32),
-                          const _SectionHeader('Your Accounts').animate(delay: 400.ms).fade(),
+                          _SectionHeader('Your Accounts', onTap: () {
+                            context.findAncestorStateOfType<AppShellState>()?.navigateTo(2);
+                          }).animate(delay: 400.ms).fade(),
                           const SizedBox(height: 16),
                           _AccountsList(accounts: _summary!['accounts']).animate(delay: 450.ms).fade(duration: 500.ms).slideY(begin: 0.1),
+                          const SizedBox(height: 32),
+                          _SectionHeader('Trend Analysis').animate(delay: 500.ms).fade(),
+                          const SizedBox(height: 16),
+                          _InteractiveTrendChart(
+                            data: _trendData ?? [],
+                            timeframe: _trendTimeframe,
+                            isLoading: _loadingTrend,
+                            onTimeframeChanged: _loadTrendOnly,
+                          ).animate(delay: 550.ms).fade(duration: 500.ms).slideY(begin: 0.1),
                         ],
                       ),
                     ],
@@ -219,15 +249,23 @@ class _StatGlassCard extends StatelessWidget {
 
 class _SectionHeader extends StatelessWidget {
   final String title;
-  const _SectionHeader(this.title);
+  final VoidCallback? onTap;
+  const _SectionHeader(this.title, {this.onTap});
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: -0.5)),
-        const Spacer(),
-        Icon(Icons.chevron_right_rounded, color: AppColors.textSecondary.withOpacity(0.5)),
-      ],
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+        child: Row(
+          children: [
+            Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: -0.5)),
+            const Spacer(),
+            Icon(Icons.chevron_right_rounded, color: AppColors.textSecondary.withOpacity(0.5)),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -435,5 +473,190 @@ class _ErrorView extends StatelessWidget {
       const SizedBox(height: 24),
       ElevatedButton(onPressed: onRetry, child: const Text('Try Again')),
     ]));
+  }
+}
+
+class _InteractiveTrendChart extends StatefulWidget {
+  final List<dynamic> data;
+  final String timeframe;
+  final bool isLoading;
+  final Function(String) onTimeframeChanged;
+
+  const _InteractiveTrendChart({
+    required this.data,
+    required this.timeframe,
+    required this.isLoading,
+    required this.onTimeframeChanged,
+  });
+
+  @override
+  State<_InteractiveTrendChart> createState() => _InteractiveTrendChartState();
+}
+
+class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
+  RangeValues? _range;
+
+  @override
+  void didUpdateWidget(covariant _InteractiveTrendChart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.data != widget.data || _range == null) {
+      if (widget.data.isNotEmpty) {
+        _range = RangeValues(0, (widget.data.length - 1).toDouble());
+      } else {
+        _range = const RangeValues(0, 0);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: ['day', 'month', 'year'].map((tf) {
+              final isSelected = widget.timeframe == tf;
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: ChoiceChip(
+                  label: Text(tf.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : AppColors.textSecondary)),
+                  selected: isSelected,
+                  selectedColor: AppColors.accentPrimary,
+                  backgroundColor: AppColors.surfaceAlt,
+                  showCheckmark: false,
+                  onSelected: (sel) {
+                    if (sel) widget.onTimeframeChanged(tf);
+                  },
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 20),
+          if (widget.isLoading)
+            const SizedBox(height: 200, child: Center(child: CircularProgressIndicator(color: AppColors.accentPrimary)))
+          else if (widget.data.isEmpty)
+            const SizedBox(height: 200, child: _EmptyState(message: 'No trend data available'))
+          else ...[
+            SizedBox(
+              height: 200,
+              child: _buildLineChart(),
+            ),
+            const SizedBox(height: 16),
+            if (widget.data.length > 1)
+              SliderTheme(
+                data: SliderThemeData(
+                  activeTrackColor: AppColors.accentSecondary,
+                  inactiveTrackColor: AppColors.surfaceAlt,
+                  thumbColor: AppColors.accentPrimary,
+                  overlayColor: AppColors.accentPrimary.withOpacity(0.2),
+                  trackHeight: 4,
+                ),
+                child: RangeSlider(
+                  values: _range ?? RangeValues(0, (widget.data.length - 1).toDouble()),
+                  min: 0,
+                  max: (widget.data.length - 1).toDouble(),
+                  divisions: (widget.data.length > 1) ? widget.data.length - 1 : 1,
+                  onChanged: (vals) {
+                    setState(() => _range = vals);
+                  },
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLineChart() {
+    final startIdx = _range?.start.round() ?? 0;
+    final endIdx = _range?.end.round() ?? (widget.data.length - 1);
+    
+    if (startIdx >= widget.data.length || endIdx >= widget.data.length || startIdx > endIdx) {
+      return const SizedBox();
+    }
+
+    final visibleData = widget.data.sublist(startIdx, endIdx + 1);
+    if (visibleData.isEmpty) return const SizedBox();
+
+    double maxVal = 0;
+    List<FlSpot> spots = [];
+    for (int i = 0; i < visibleData.length; i++) {
+      final val = (visibleData[i]['expense'] as num).toDouble();
+      if (val > maxVal) maxVal = val;
+      spots.add(FlSpot(i.toDouble(), val));
+    }
+
+    return LineChart(
+      LineChartData(
+        gridData: const FlGridData(show: false),
+        titlesData: FlTitlesData(
+          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (val, meta) {
+                final idx = val.toInt();
+                if (idx < 0 || idx >= visibleData.length) return const SizedBox();
+                final dateStr = visibleData[idx]['date'] as String;
+                String display = dateStr;
+                if (widget.timeframe == 'month' && dateStr.length >= 7) {
+                  display = dateStr.substring(5); // Show MM
+                } else if (widget.timeframe == 'day' && dateStr.length >= 10) {
+                  display = dateStr.substring(8); // Show DD
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(display, style: const TextStyle(color: AppColors.textSecondary, fontSize: 10)),
+                );
+              },
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        minX: 0,
+        maxX: (visibleData.length - 1).toDouble(),
+        minY: 0,
+        maxY: (maxVal * 1.2 > 0) ? maxVal * 1.2 : 100,
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            color: AppColors.accentPrimary,
+            barWidth: 3,
+            isStrokeCapRound: true,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(
+              show: true,
+              gradient: LinearGradient(
+                colors: [
+                  AppColors.accentPrimary.withOpacity(0.5),
+                  AppColors.accentPrimary.withOpacity(0.0),
+                ],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+            ),
+          ),
+        ],
+        lineTouchData: LineTouchData(
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipColor: (_) => AppColors.surfaceAlt,
+            getTooltipItems: (touchedSpots) {
+              return touchedSpots.map((spot) {
+                return LineTooltipItem(
+                  NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0).format(spot.y),
+                  const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
+                );
+              }).toList();
+            },
+          ),
+        ),
+      ),
+    );
   }
 }

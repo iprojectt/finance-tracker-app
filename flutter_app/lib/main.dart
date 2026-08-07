@@ -37,11 +37,25 @@ class FinanceApp extends StatelessWidget {
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
   @override
-  State<AppShell> createState() => _AppShellState();
+  State<AppShell> createState() => AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class AppShellState extends State<AppShell> {
   int _selectedIndex = 0;
+
+  void navigateTo(int index) {
+    final isWide = MediaQuery.of(context).size.width > 750;
+    if (isWide) {
+      setState(() => _selectedIndex = index);
+    } else {
+      if (index < 4) {
+        setState(() => _selectedIndex = index);
+      } else {
+        // Push the screen over the current one on mobile
+        Navigator.push(context, MaterialPageRoute(builder: (context) => _screens[index]));
+      }
+    }
+  }
 
   final List<_NavItem> _navItems = [
     const _NavItem(icon: Icons.grid_view_rounded, label: 'Dashboard'),

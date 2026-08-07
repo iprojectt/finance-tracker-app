@@ -55,11 +55,29 @@ class FirestoreStore:
         self.db = None
         self.use_mock = True
         self.memory_store: Dict[str, Dict[str, Dict[str, Dict[str, Any]]]] = {}
+        self.local_file = "local_db.json"
         self._init_firebase()
+        if self.use_mock:
+            self._load_local_db()
+
+    def _load_local_db(self):
+        import json
+        if os.path.exists(self.local_file):
+            try:
+                with open(self.local_file, "r") as f:
+                    self.memory_store = json.load(f)
+            except Exception as e:
+                print(f"WARNING: Could not load local DB: {e}")
+
+    def _save_local_db(self):
+        if self.use_mock:
+            import json
+            with open(self.local_file, "w") as f:
+                json.dump(self.memory_store, f, indent=2)
 
     def _init_firebase(self):
         if not FIREBASE_AVAILABLE:
-            print("⚠️ firebase-admin package not installed. Operating in high-speed local mode.")
+            print("WARNING: firebase-admin package not installed. Operating in high-speed local mode.")
             return
 
         cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
@@ -132,6 +150,7 @@ class FirestoreStore:
         user_data = self.memory_store.setdefault(user_id, {})
         col_data = user_data.setdefault(collection_name, {})
         col_data[doc_id] = data_copy
+        self._save_local_db()
         return data_copy
 
     def update_doc(self, user_id: str, collection_name: str, doc_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -149,6 +168,7 @@ class FirestoreStore:
         col_data = user_data.setdefault(collection_name, {})
         if doc_id in col_data:
             col_data[doc_id].update(updates)
+            self._save_local_db()
             return col_data[doc_id]
         return None
 
@@ -161,6 +181,7 @@ class FirestoreStore:
         col_data = user_data.get(collection_name, {})
         if doc_id in col_data:
             del col_data[doc_id]
+            self._save_local_db()
             return True
         return False
 
@@ -179,6 +200,7 @@ class FirestoreStore:
         user_data = self.memory_store.setdefault(user_id, {})
         col_data = user_data.setdefault(path, {})
         col_data[doc_id] = data_copy
+        self._save_local_db()
         return data_copy
 
     def get_subcollection_docs(self, user_id: str, parent_col: str, parent_id: str, sub_col: str) -> List[Dict[str, Any]]:
@@ -201,5 +223,6 @@ class FirestoreStore:
         if not existing:
             for cat in DEFAULT_CATEGORIES:
                 self.add_doc(user_id, 'categories', cat)
+            self._save_local_db()
 
 store = FirestoreStore()
