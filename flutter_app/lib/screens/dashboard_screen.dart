@@ -495,6 +495,7 @@ class _InteractiveTrendChart extends StatefulWidget {
 
 class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
   RangeValues? _range;
+  bool _isBarChart = true; // default to bar chart for better single-point visibility
 
   @override
   void didUpdateWidget(covariant _InteractiveTrendChart oldWidget) {
@@ -516,23 +517,46 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: ['day', 'month', 'year'].map((tf) {
-              final isSelected = widget.timeframe == tf;
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: ChoiceChip(
-                  label: Text(tf.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : AppColors.textSecondary)),
-                  selected: isSelected,
-                  selectedColor: AppColors.accentPrimary,
-                  backgroundColor: AppColors.surfaceAlt,
-                  showCheckmark: false,
-                  onSelected: (sel) {
-                    if (sel) widget.onTimeframeChanged(tf);
-                  },
-                ),
-              );
-            }).toList(),
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: ['day', 'month', 'year'].map((tf) {
+                  final isSelected = widget.timeframe == tf;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(tf.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : AppColors.textSecondary)),
+                      selected: isSelected,
+                      selectedColor: AppColors.accentPrimary,
+                      backgroundColor: AppColors.surfaceAlt,
+                      showCheckmark: false,
+                      onSelected: (sel) {
+                        if (sel) widget.onTimeframeChanged(tf);
+                      },
+                    ),
+                  );
+                }).toList(),
+              ),
+              Row(
+                children: [
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    icon: Icon(Icons.show_chart_rounded, color: !_isBarChart ? AppColors.accentPrimary : AppColors.textSecondary),
+                    iconSize: 20,
+                    onPressed: () => setState(() => _isBarChart = false),
+                  ),
+                  const SizedBox(width: 12),
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    icon: Icon(Icons.bar_chart_rounded, color: _isBarChart ? AppColors.accentPrimary : AppColors.textSecondary),
+                    iconSize: 20,
+                    onPressed: () => setState(() => _isBarChart = true),
+                  ),
+                ],
+              ),
+            ],
           ),
           const SizedBox(height: 20),
           if (widget.isLoading)
@@ -542,7 +566,7 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
           else ...[
             SizedBox(
               height: 200,
-              child: _buildLineChart(),
+              child: _isBarChart ? _buildBarChart() : _buildLineChart(),
             ),
             const SizedBox(height: 16),
             if (widget.data.length > 1)
@@ -566,6 +590,91 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
               ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildBarChart() {
+    final startIdx = _range?.start.round() ?? 0;
+    final endIdx = _range?.end.round() ?? (widget.data.length - 1);
+    
+    if (startIdx >= widget.data.length || endIdx >= widget.data.length || startIdx > endIdx) {
+      return const SizedBox();
+    }
+
+    final visibleData = widget.data.sublist(startIdx, endIdx + 1);
+    if (visibleData.isEmpty) return const SizedBox();
+
+    double maxVal = 0;
+    List<BarChartGroupData> groups = [];
+    for (int i = 0; i < visibleData.length; i++) {
+      final val = (visibleData[i]['expense'] as num).toDouble();
+      if (val > maxVal) maxVal = val;
+      groups.add(
+        BarChartGroupData(
+          x: i,
+          barRods: [
+            BarChartRodData(
+              toY: val,
+              color: AppColors.accentPrimary,
+              width: visibleData.length > 10 ? 12 : 24,
+              borderRadius: BorderRadius.circular(4),
+              backDrawRodData: BackgroundBarChartRodData(
+                show: true,
+                toY: maxVal * 1.2 > 0 ? maxVal * 1.2 : 100,
+                color: AppColors.surfaceAlt,
+              ),
+            ),
+          ],
+          showingTooltipIndicators: visibleData.length <= 6 ? [0] : [],
+        ),
+      );
+    }
+
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.spaceAround,
+        maxY: (maxVal * 1.2 > 0) ? maxVal * 1.2 : 100,
+        gridData: const FlGridData(show: false),
+        borderData: FlBorderData(show: false),
+        titlesData: FlTitlesData(
+          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (val, meta) {
+                if (val != val.roundToDouble()) return const SizedBox();
+                final idx = val.toInt();
+                if (idx < 0 || idx >= visibleData.length) return const SizedBox();
+                final dateStr = visibleData[idx]['date'] as String;
+                String display = dateStr;
+                if (widget.timeframe == 'month' && dateStr.length >= 7) {
+                  display = dateStr.substring(5);
+                } else if (widget.timeframe == 'day' && dateStr.length >= 10) {
+                  display = dateStr.substring(8);
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(display, style: const TextStyle(color: AppColors.textSecondary, fontSize: 10)),
+                );
+              },
+            ),
+          ),
+        ),
+        barTouchData: BarTouchData(
+          enabled: visibleData.length > 6,
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipColor: (_) => AppColors.surfaceAlt,
+            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              return BarTooltipItem(
+                NumberFormat.compactCurrency(locale: 'en_IN', symbol: '₹', decimalDigits: 1).format(rod.toY),
+                const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 12),
+              );
+            },
+          ),
+        ),
       ),
     );
   }
@@ -600,14 +709,15 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
             sideTitles: SideTitles(
               showTitles: true,
               getTitlesWidget: (val, meta) {
+                if (val != val.roundToDouble()) return const SizedBox();
                 final idx = val.toInt();
                 if (idx < 0 || idx >= visibleData.length) return const SizedBox();
                 final dateStr = visibleData[idx]['date'] as String;
                 String display = dateStr;
                 if (widget.timeframe == 'month' && dateStr.length >= 7) {
-                  display = dateStr.substring(5); // Show MM
+                  display = dateStr.substring(5);
                 } else if (widget.timeframe == 'day' && dateStr.length >= 10) {
-                  display = dateStr.substring(8); // Show DD
+                  display = dateStr.substring(8);
                 }
                 return Padding(
                   padding: const EdgeInsets.only(top: 8.0),
@@ -618,18 +728,18 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
           ),
         ),
         borderData: FlBorderData(show: false),
-        minX: 0,
-        maxX: (visibleData.length - 1).toDouble(),
+        minX: visibleData.length == 1 ? -0.5 : 0,
+        maxX: visibleData.length == 1 ? 0.5 : (visibleData.length - 1).toDouble(),
         minY: 0,
         maxY: (maxVal * 1.2 > 0) ? maxVal * 1.2 : 100,
         lineBarsData: [
           LineChartBarData(
-            spots: spots,
+            spots: spots.isEmpty ? [const FlSpot(0,0)] : spots,
             isCurved: true,
             color: AppColors.accentPrimary,
             barWidth: 3,
             isStrokeCapRound: true,
-            dotData: const FlDotData(show: false),
+            dotData: FlDotData(show: visibleData.length <= 6),
             belowBarData: BarAreaData(
               show: true,
               gradient: LinearGradient(
@@ -649,8 +759,8 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
             getTooltipItems: (touchedSpots) {
               return touchedSpots.map((spot) {
                 return LineTooltipItem(
-                  NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0).format(spot.y),
-                  const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
+                  NumberFormat.compactCurrency(locale: 'en_IN', symbol: '₹', decimalDigits: 1).format(spot.y),
+                  const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 12),
                 );
               }).toList();
             },
@@ -660,3 +770,4 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
     );
   }
 }
+
