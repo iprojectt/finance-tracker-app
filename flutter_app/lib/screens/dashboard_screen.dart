@@ -495,7 +495,7 @@ class _InteractiveTrendChart extends StatefulWidget {
 
 class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
   RangeValues? _range;
-  bool _isBarChart = true; // default to bar chart for better single-point visibility
+  int _chartMode = 1; // 0 = Line, 1 = Bar, 2 = Advanced (Glowing)
 
   @override
   void didUpdateWidget(covariant _InteractiveTrendChart oldWidget) {
@@ -542,17 +542,25 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
                   IconButton(
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
-                    icon: Icon(Icons.show_chart_rounded, color: !_isBarChart ? AppColors.accentPrimary : AppColors.textSecondary),
+                    icon: Icon(Icons.show_chart_rounded, color: _chartMode == 0 ? AppColors.accentPrimary : AppColors.textSecondary),
                     iconSize: 20,
-                    onPressed: () => setState(() => _isBarChart = false),
+                    onPressed: () => setState(() => _chartMode = 0),
                   ),
                   const SizedBox(width: 12),
                   IconButton(
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
-                    icon: Icon(Icons.bar_chart_rounded, color: _isBarChart ? AppColors.accentPrimary : AppColors.textSecondary),
+                    icon: Icon(Icons.bar_chart_rounded, color: _chartMode == 1 ? AppColors.accentPrimary : AppColors.textSecondary),
                     iconSize: 20,
-                    onPressed: () => setState(() => _isBarChart = true),
+                    onPressed: () => setState(() => _chartMode = 1),
+                  ),
+                  const SizedBox(width: 12),
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    icon: Icon(Icons.insights_rounded, color: _chartMode == 2 ? Colors.cyanAccent : AppColors.textSecondary),
+                    iconSize: 20,
+                    onPressed: () => setState(() => _chartMode = 2),
                   ),
                 ],
               ),
@@ -566,7 +574,7 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
           else ...[
             SizedBox(
               height: 200,
-              child: _isBarChart ? _buildBarChart() : _buildLineChart(),
+              child: _chartMode == 0 ? _buildLineChart() : (_chartMode == 1 ? _buildBarChart() : _buildAdvancedChart()),
             ),
             const SizedBox(height: 16),
             if (widget.data.length > 1)
@@ -633,7 +641,8 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
 
     return BarChart(
       BarChartData(
-        alignment: BarChartAlignment.spaceAround,
+        alignment: visibleData.length == 1 ? BarChartAlignment.center : BarChartAlignment.spaceAround,
+        barGroups: groups,
         maxY: (maxVal * 1.2 > 0) ? maxVal * 1.2 : 100,
         gridData: const FlGridData(show: false),
         borderData: FlBorderData(show: false),
@@ -698,6 +707,26 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
       spots.add(FlSpot(i.toDouble(), val));
     }
 
+    final barData = LineChartBarData(
+      spots: spots.isEmpty ? [const FlSpot(0,0)] : spots,
+      isCurved: true,
+      color: AppColors.accentPrimary,
+      barWidth: 3,
+      isStrokeCapRound: true,
+      dotData: FlDotData(show: visibleData.length <= 6),
+      belowBarData: BarAreaData(
+        show: true,
+        gradient: LinearGradient(
+          colors: [
+            AppColors.accentPrimary.withOpacity(0.5),
+            AppColors.accentPrimary.withOpacity(0.0),
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+    );
+
     return LineChart(
       LineChartData(
         gridData: const FlGridData(show: false),
@@ -732,28 +761,16 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
         maxX: visibleData.length == 1 ? 0.5 : (visibleData.length - 1).toDouble(),
         minY: 0,
         maxY: (maxVal * 1.2 > 0) ? maxVal * 1.2 : 100,
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots.isEmpty ? [const FlSpot(0,0)] : spots,
-            isCurved: true,
-            color: AppColors.accentPrimary,
-            barWidth: 3,
-            isStrokeCapRound: true,
-            dotData: FlDotData(show: visibleData.length <= 6),
-            belowBarData: BarAreaData(
-              show: true,
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.accentPrimary.withOpacity(0.5),
-                  AppColors.accentPrimary.withOpacity(0.0),
-                ],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
-            ),
-          ),
-        ],
+        lineBarsData: [barData],
+        showingTooltipIndicators: visibleData.length <= 6
+            ? (spots.isEmpty ? [const FlSpot(0,0)] : spots).map((spot) {
+                return ShowingTooltipIndicators([
+                  LineBarSpot(barData, 0, spot),
+                ]);
+              }).toList()
+            : [],
         lineTouchData: LineTouchData(
+          enabled: visibleData.length > 6,
           touchTooltipData: LineTouchTooltipData(
             getTooltipColor: (_) => AppColors.surfaceAlt,
             getTooltipItems: (touchedSpots) {
@@ -761,6 +778,160 @@ class _InteractiveTrendChartState extends State<_InteractiveTrendChart> {
                 return LineTooltipItem(
                   NumberFormat.compactCurrency(locale: 'en_IN', symbol: '₹', decimalDigits: 1).format(spot.y),
                   const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 12),
+                );
+              }).toList();
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAdvancedChart() {
+    final startIdx = _range?.start.round() ?? 0;
+    final endIdx = _range?.end.round() ?? (widget.data.length - 1);
+    
+    if (startIdx >= widget.data.length || endIdx >= widget.data.length || startIdx > endIdx) {
+      return const SizedBox();
+    }
+
+    final visibleData = widget.data.sublist(startIdx, endIdx + 1);
+    if (visibleData.isEmpty) return const SizedBox();
+
+    double maxVal = 0;
+    List<FlSpot> spots = [];
+    double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+    int n = visibleData.length;
+
+    for (int i = 0; i < n; i++) {
+      final val = (visibleData[i]['expense'] as num).toDouble();
+      if (val > maxVal) maxVal = val;
+      
+      double x = i.toDouble();
+      double y = val;
+      spots.add(FlSpot(x, y));
+      
+      sumX += x;
+      sumY += y;
+      sumXY += x * y;
+      sumX2 += x * x;
+    }
+
+    List<FlSpot> trendSpots = [];
+    if (n > 1) {
+      double denominator = (n * sumX2 - sumX * sumX);
+      if (denominator != 0) {
+        double m = (n * sumXY - sumX * sumY) / denominator;
+        double b = (sumY - m * sumX) / n;
+        trendSpots.add(FlSpot(0, b));
+        trendSpots.add(FlSpot((n - 1).toDouble(), m * (n - 1) + b));
+        
+        double maxTrend = [b, m * (n - 1) + b].reduce((a, b) => a > b ? a : b);
+        if (maxTrend > maxVal) maxVal = maxTrend;
+      }
+    }
+
+    final mainBarData = LineChartBarData(
+      spots: spots.isEmpty ? [const FlSpot(0,0)] : spots,
+      isCurved: true,
+      color: Colors.cyanAccent,
+      barWidth: 4,
+      isStrokeCapRound: true,
+      dotData: FlDotData(
+        show: true, 
+        getDotPainter: (spot, percent, barData, index) {
+          return FlDotCirclePainter(
+            radius: 4,
+            color: Colors.cyanAccent,
+            strokeWidth: 2,
+            strokeColor: Colors.black,
+          );
+        },
+      ),
+      shadow: const Shadow(color: Colors.cyanAccent, blurRadius: 10),
+      belowBarData: BarAreaData(
+        show: true,
+        gradient: LinearGradient(
+          colors: [
+            Colors.cyanAccent.withOpacity(0.4),
+            Colors.cyanAccent.withOpacity(0.0),
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+    );
+
+    final trendBarData = LineChartBarData(
+      spots: trendSpots.isNotEmpty ? trendSpots : [const FlSpot(0,0)],
+      isCurved: false,
+      color: Colors.white.withOpacity(0.5),
+      barWidth: 2,
+      dashArray: [5, 5],
+      dotData: const FlDotData(show: false),
+    );
+
+    return LineChart(
+      LineChartData(
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: true,
+          drawHorizontalLine: true,
+          getDrawingHorizontalLine: (value) => FlLine(color: Colors.white.withOpacity(0.1), strokeWidth: 1),
+          getDrawingVerticalLine: (value) => FlLine(color: Colors.white.withOpacity(0.1), strokeWidth: 1),
+        ),
+        titlesData: FlTitlesData(
+          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (val, meta) {
+                if (val != val.roundToDouble()) return const SizedBox();
+                final idx = val.toInt();
+                if (idx < 0 || idx >= visibleData.length) return const SizedBox();
+                final dateStr = visibleData[idx]['date'] as String;
+                String display = dateStr;
+                if (widget.timeframe == 'month' && dateStr.length >= 7) {
+                  display = dateStr.substring(5);
+                } else if (widget.timeframe == 'day' && dateStr.length >= 10) {
+                  display = dateStr.substring(8);
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(display, style: const TextStyle(color: AppColors.textSecondary, fontSize: 10)),
+                );
+              },
+            ),
+          ),
+        ),
+        borderData: FlBorderData(
+          show: true,
+          border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
+        ),
+        minX: visibleData.length == 1 ? -0.5 : 0,
+        maxX: visibleData.length == 1 ? 0.5 : (visibleData.length - 1).toDouble(),
+        minY: 0,
+        maxY: (maxVal * 1.2 > 0) ? maxVal * 1.2 : 100,
+        lineBarsData: trendSpots.isNotEmpty ? [trendBarData, mainBarData] : [mainBarData],
+        showingTooltipIndicators: visibleData.length <= 6
+            ? (spots.isEmpty ? [const FlSpot(0,0)] : spots).map((spot) {
+                return ShowingTooltipIndicators([
+                  LineBarSpot(mainBarData, trendSpots.isNotEmpty ? 1 : 0, spot),
+                ]);
+              }).toList()
+            : [],
+        lineTouchData: LineTouchData(
+          enabled: visibleData.length > 6,
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipColor: (_) => AppColors.surfaceAlt,
+            getTooltipItems: (touchedSpots) {
+              return touchedSpots.map((spot) {
+                if (trendSpots.isNotEmpty && spot.barIndex == 0) return null; // skip trend line
+                return LineTooltipItem(
+                  NumberFormat.compactCurrency(locale: 'en_IN', symbol: '₹', decimalDigits: 1).format(spot.y),
+                  const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 12),
                 );
               }).toList();
             },
