@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from app.models.schemas import SubscriptionCreate
+from app.models.schemas import SubscriptionCreate, SubscriptionUpdate
 from app.db.firestore_service import store
 
 router = APIRouter()
@@ -21,8 +21,20 @@ def toggle_subscription(sub_id: str, user_id: str = "default_user"):
     new_active = not sub.get("active", True)
     return store.update_doc(user_id, "subscriptions", sub_id, {"active": new_active})
 
+@router.put("/{sub_id}")
+def update_subscription(sub_id: str, payload: SubscriptionUpdate, user_id: str = "default_user"):
+    existing = store.get_doc(user_id, "subscriptions", sub_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    updates = {k: v for k, v in payload.dict().items() if v is not None}
+    if not updates:
+        return existing
+    doc = store.update_doc(user_id, "subscriptions", sub_id, updates)
+    return doc
+
 @router.delete("/{sub_id}", status_code=204)
 def delete_subscription(sub_id: str, user_id: str = "default_user"):
     success = store.delete_doc(user_id, "subscriptions", sub_id)
     if not success:
         raise HTTPException(status_code=404, detail="Subscription not found")
+

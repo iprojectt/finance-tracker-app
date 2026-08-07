@@ -22,14 +22,34 @@ class _InvestmentsScreenState extends State<InvestmentsScreen> {
     setState(() => _loading = false);
   }
 
-  void _showAdd() {
-    final nameCtrl = TextEditingController();
-    final subtypeCtrl = TextEditingController();
-    final investedCtrl = TextEditingController();
-    final currentCtrl = TextEditingController();
-    final unitsCtrl = TextEditingController();
-    final platformCtrl = TextEditingController();
-    String type = 'mutual_fund';
+  Future<bool> _confirmDelete(String name) async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Delete Investment?'),
+        content: Text('Are you sure you want to delete "$name"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
+
+  void _showAddOrEdit({Map<String, dynamic>? existing}) {
+    final nameCtrl = TextEditingController(text: existing?['name'] ?? '');
+    final subtypeCtrl = TextEditingController(text: existing?['subtype'] ?? '');
+    final investedCtrl = TextEditingController(text: existing != null ? existing['investedAmount'].toString() : '');
+    final currentCtrl = TextEditingController(text: existing != null ? existing['currentValue'].toString() : '');
+    final unitsCtrl = TextEditingController(text: existing?['units']?.toString() ?? '');
+    final platformCtrl = TextEditingController(text: existing?['platform'] ?? '');
+    String type = existing?['type'] ?? 'mutual_fund';
+    final isEdit = existing != null;
 
     showModalBottomSheet(
       context: context, isScrollControlled: true,
@@ -38,7 +58,7 @@ class _InvestmentsScreenState extends State<InvestmentsScreen> {
       builder: (_) => StatefulBuilder(builder: (ctx, setSt) => SingleChildScrollView(
         padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('Add Investment', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
+          Text(isEdit ? 'Edit Investment' : 'Add Investment', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
           const SizedBox(height: 16),
           TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Name (e.g. Nifty 50 Index Fund)')),
           const SizedBox(height: 12),
@@ -62,7 +82,7 @@ class _InvestmentsScreenState extends State<InvestmentsScreen> {
           const SizedBox(height: 20),
           SizedBox(width: double.infinity, child: ElevatedButton(
             onPressed: () async {
-              await ApiService.instance.createInvestment({
+              final data = {
                 'name': nameCtrl.text,
                 'type': type,
                 'subtype': subtypeCtrl.text.isNotEmpty ? subtypeCtrl.text : null,
@@ -70,11 +90,16 @@ class _InvestmentsScreenState extends State<InvestmentsScreen> {
                 'investedAmount': double.tryParse(investedCtrl.text) ?? 0.0,
                 'currentValue': double.tryParse(currentCtrl.text) ?? 0.0,
                 'units': double.tryParse(unitsCtrl.text),
-              });
+              };
+              if (isEdit) {
+                await ApiService.instance.updateInvestment(existing['id'], data);
+              } else {
+                await ApiService.instance.createInvestment(data);
+              }
               _load();
               if (mounted) Navigator.pop(context);
             },
-            child: const Text('Save Investment'),
+            child: Text(isEdit ? 'Update Investment' : 'Save Investment'),
           )),
         ]),
       )),
@@ -90,7 +115,7 @@ class _InvestmentsScreenState extends State<InvestmentsScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Investments'), actions: [
-        IconButton(icon: const Icon(Icons.add_rounded), onPressed: _showAdd),
+        IconButton(icon: const Icon(Icons.add_rounded), onPressed: () => _showAddOrEdit()),
       ]),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -124,25 +149,41 @@ class _InvestmentsScreenState extends State<InvestmentsScreen> {
                           final gain = (inv['gain_loss'] ?? 0) as num;
                           final ret = (inv['return_pct'] ?? 0) as num;
                           final subtype = inv['subtype'] != null ? ' · ${inv['subtype']}' : '';
-                          return Card(
-                            child: ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: AppColors.accent.withOpacity(0.15),
-                                child: const Icon(Icons.trending_up_rounded, color: AppColors.accent, size: 18),
+                          return Dismissible(
+                            key: Key(inv['id'].toString()),
+                            direction: DismissDirection.endToStart,
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppColors.accentRed.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(12),
                               ),
-                              title: Text(inv['name'], style: const TextStyle(fontWeight: FontWeight.w600)),
-                              subtitle: Text('${inv['type']}$subtype · ${inv['platform'] ?? '-'}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                              trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
-                                Text(fmt.format(inv['currentValue'] ?? 0), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                                Text(
-                                  '${gain >= 0 ? '+' : ''}${fmt.format(gain)} (${ret.toStringAsFixed(1)}%)',
-                                  style: TextStyle(color: gain >= 0 ? AppColors.accentGreen : AppColors.accentRed, fontSize: 11),
+                              child: const Icon(Icons.delete_outline_rounded, color: AppColors.accentRed),
+                            ),
+                            confirmDismiss: (_) => _confirmDelete(inv['name']),
+                            onDismissed: (_) async {
+                              await ApiService.instance.deleteInvestment(inv['id']);
+                              _load();
+                            },
+                            child: Card(
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: AppColors.accent.withOpacity(0.15),
+                                  child: const Icon(Icons.trending_up_rounded, color: AppColors.accent, size: 18),
                                 ),
-                              ]),
-                              onLongPress: () async {
-                                await ApiService.instance.deleteInvestment(inv['id']);
-                                _load();
-                              },
+                                title: Text(inv['name'], style: const TextStyle(fontWeight: FontWeight.w600)),
+                                subtitle: Text('${inv['type']}$subtype · ${inv['platform'] ?? '-'}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                                trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                                  Text(fmt.format(inv['currentValue'] ?? 0), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                                  Text(
+                                    '${gain >= 0 ? '+' : ''}${fmt.format(gain)} (${ret.toStringAsFixed(1)}%)',
+                                    style: TextStyle(color: gain >= 0 ? AppColors.accentGreen : AppColors.accentRed, fontSize: 11),
+                                  ),
+                                ]),
+                                onTap: () => _showAddOrEdit(existing: Map<String, dynamic>.from(inv)),
+                              ),
                             ),
                           );
                         }),

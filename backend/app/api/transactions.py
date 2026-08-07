@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Query
-from app.models.schemas import TransactionCreate
+from app.models.schemas import TransactionCreate, TransactionUpdate
 from app.db.firestore_service import store
 from app.services.csv_parser import parse_bank_csv
 from typing import Optional
@@ -111,6 +111,41 @@ async def import_csv(account_id: str, file: UploadFile = File(...), user_id: str
 
     return {"imported": inserted}
 
+@router.put("/{txn_id}")
+def update_transaction(txn_id: str, payload: TransactionUpdate, user_id: str = "default_user"):
+    old_txn = store.get_doc(user_id, "transactions", txn_id)
+    if not old_txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    updates = {k: v for k, v in payload.dict().items() if v is not None}
+    if not updates:
+        return old_txn
+
+    # Step 1: Reverse old transaction's effect on its account balance
+    old_acc_id = old_txn.get("accountId")
+    if old_acc_id:
+        old_acc = store.get_doc(user_id, "accounts", old_acc_id)
+        if old_acc:
+            old_delta = -old_txn.get("amount", 0.0) if old_txn.get("type") == "credit" else old_txn.get("amount", 0.0)
+            store.update_doc(user_id, "accounts", old_acc_id, {
+                "balance": round(old_acc.get("balance", 0.0) + old_delta, 2)
+            })
+
+    # Step 2: Apply the update
+    updated_txn = store.update_doc(user_id, "transactions", txn_id, updates)
+
+    # Step 3: Apply new transaction's effect on its (possibly new) account balance
+    new_acc_id = updated_txn.get("accountId")
+    if new_acc_id:
+        new_acc = store.get_doc(user_id, "accounts", new_acc_id)
+        if new_acc:
+            new_delta = updated_txn.get("amount", 0.0) if updated_txn.get("type") == "credit" else -updated_txn.get("amount", 0.0)
+            store.update_doc(user_id, "accounts", new_acc_id, {
+                "balance": round(new_acc.get("balance", 0.0) + new_delta, 2)
+            })
+
+    return updated_txn
+
 @router.delete("/{txn_id}", status_code=204)
 def delete_transaction(txn_id: str, user_id: str = "default_user"):
     txn = store.get_doc(user_id, "transactions", txn_id)
@@ -126,3 +161,4 @@ def delete_transaction(txn_id: str, user_id: str = "default_user"):
             store.update_doc(user_id, "accounts", acc_id, {"balance": round(acc.get("balance", 0.0) + delta, 2)})
 
     store.delete_doc(user_id, "transactions", txn_id)
+

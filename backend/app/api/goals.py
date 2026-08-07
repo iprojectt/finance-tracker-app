@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from app.models.schemas import GoalCreate
+from app.models.schemas import GoalCreate, GoalUpdate
 from app.db.firestore_service import store
 
 router = APIRouter()
@@ -30,8 +30,20 @@ def add_savings(goal_id: str, amount: float, user_id: str = "default_user"):
     new_saved = goal.get("savedAmount", 0.0) + amount
     return store.update_doc(user_id, "goals", goal_id, {"savedAmount": round(new_saved, 2)})
 
+@router.put("/{goal_id}")
+def update_goal(goal_id: str, payload: GoalUpdate, user_id: str = "default_user"):
+    existing = store.get_doc(user_id, "goals", goal_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    updates = {k: v for k, v in payload.dict().items() if v is not None}
+    if not updates:
+        return existing
+    doc = store.update_doc(user_id, "goals", goal_id, updates)
+    return doc
+
 @router.delete("/{goal_id}", status_code=204)
 def delete_goal(goal_id: str, user_id: str = "default_user"):
     success = store.delete_doc(user_id, "goals", goal_id)
     if not success:
         raise HTTPException(status_code=404, detail="Goal not found")
+

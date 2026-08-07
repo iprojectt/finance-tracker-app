@@ -22,11 +22,31 @@ class _AccountsScreenState extends State<AccountsScreen> {
     setState(() => _loading = false);
   }
 
-  void _showAdd() {
-    final nameCtrl = TextEditingController();
-    final subtypeCtrl = TextEditingController();
-    final balCtrl = TextEditingController();
-    String type = 'savings';
+  Future<bool> _confirmDelete(String name) async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Delete Account?'),
+        content: Text('Are you sure you want to delete "$name"? Transactions linked to this account will lose their association.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
+
+  void _showAddOrEdit({Map<String, dynamic>? existing}) {
+    final isEdit = existing != null;
+    final nameCtrl = TextEditingController(text: existing?['name'] ?? '');
+    final subtypeCtrl = TextEditingController(text: existing?['subtype'] ?? '');
+    final balCtrl = TextEditingController(text: existing != null ? existing['balance'].toString() : '');
+    String type = existing?['type'] ?? 'savings';
 
     showModalBottomSheet(
       context: context,
@@ -36,7 +56,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
       builder: (_) => StatefulBuilder(builder: (ctx, setSt) => Padding(
         padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('Add Account', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
+          Text(isEdit ? 'Edit Account' : 'Add Account', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
           const SizedBox(height: 16),
           TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Account Name (e.g. SBI Savings)')),
           const SizedBox(height: 12),
@@ -54,17 +74,22 @@ class _AccountsScreenState extends State<AccountsScreen> {
           const SizedBox(height: 20),
           SizedBox(width: double.infinity, child: ElevatedButton(
             onPressed: () async {
-              await ApiService.instance.createAccount({
+              final data = {
                 'name': nameCtrl.text,
-                'type': type,
                 'subtype': subtypeCtrl.text.isNotEmpty ? subtypeCtrl.text : null,
                 'balance': double.tryParse(balCtrl.text) ?? 0.0,
-                'currency': 'INR',
-              });
+              };
+              if (isEdit) {
+                await ApiService.instance.updateAccount(existing['id'], data);
+              } else {
+                data['type'] = type;
+                data['currency'] = 'INR';
+                await ApiService.instance.createAccount(data);
+              }
               _load();
               if (mounted) Navigator.pop(context);
             },
-            child: const Text('Save Account'),
+            child: Text(isEdit ? 'Update Account' : 'Save Account'),
           )),
         ]),
       )),
@@ -76,7 +101,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
     final fmt = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
     return Scaffold(
       appBar: AppBar(title: const Text('Accounts'), actions: [
-        IconButton(icon: const Icon(Icons.add_rounded), onPressed: _showAdd),
+        IconButton(icon: const Icon(Icons.add_rounded), onPressed: () => _showAddOrEdit()),
       ]),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -88,17 +113,33 @@ class _AccountsScreenState extends State<AccountsScreen> {
                   itemBuilder: (ctx, i) {
                     final a = _accounts[i];
                     final subtype = a['subtype'] != null && a['subtype'].toString().isNotEmpty ? ' · ${a['subtype']}' : '';
-                    return Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.account_balance_wallet_rounded, color: AppColors.accent),
-                        title: Text(a['name']),
-                        subtitle: Text('${a['type']}$subtype'),
-                        trailing: Text(fmt.format(a['balance'] ?? 0),
-                          style: const TextStyle(color: AppColors.accentGreen, fontWeight: FontWeight.w700, fontSize: 15)),
-                        onLongPress: () async {
-                          await ApiService.instance.deleteAccount(a['id']);
-                          _load();
-                        },
+                    return Dismissible(
+                      key: Key(a['id'].toString()),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 20),
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.accentRed.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.delete_outline_rounded, color: AppColors.accentRed),
+                      ),
+                      confirmDismiss: (_) => _confirmDelete(a['name']),
+                      onDismissed: (_) async {
+                        await ApiService.instance.deleteAccount(a['id']);
+                        _load();
+                      },
+                      child: Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.account_balance_wallet_rounded, color: AppColors.accent),
+                          title: Text(a['name']),
+                          subtitle: Text('${a['type']}$subtype'),
+                          trailing: Text(fmt.format(a['balance'] ?? 0),
+                            style: const TextStyle(color: AppColors.accentGreen, fontWeight: FontWeight.w700, fontSize: 15)),
+                          onTap: () => _showAddOrEdit(existing: Map<String, dynamic>.from(a)),
+                        ),
                       ),
                     );
                   }),

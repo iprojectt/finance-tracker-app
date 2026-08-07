@@ -22,16 +22,36 @@ class _LoansScreenState extends State<LoansScreen> {
     setState(() => _loading = false);
   }
 
-  void _showAdd() {
-    final nameCtrl = TextEditingController();
-    final lenderCtrl = TextEditingController();
-    final principalCtrl = TextEditingController();
-    final outstandingCtrl = TextEditingController();
-    final rateCtrl = TextEditingController();
-    final emiCtrl = TextEditingController();
-    final tenureCtrl = TextEditingController();
-    final dateCtrl = TextEditingController(text: DateFormat('yyyy-MM-dd').format(DateTime.now()));
-    String type = 'personal';
+  Future<bool> _confirmDelete(String name) async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Delete Loan?'),
+        content: Text('Are you sure you want to delete "$name"? All EMI payment history will also be lost.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
+
+  void _showAddOrEdit({Map<String, dynamic>? existing}) {
+    final isEdit = existing != null;
+    final nameCtrl = TextEditingController(text: existing?['name'] ?? '');
+    final lenderCtrl = TextEditingController(text: existing?['lender'] ?? '');
+    final principalCtrl = TextEditingController(text: existing != null ? existing['principal'].toString() : '');
+    final outstandingCtrl = TextEditingController(text: existing != null ? existing['outstanding'].toString() : '');
+    final rateCtrl = TextEditingController(text: existing != null ? existing['interestRate'].toString() : '');
+    final emiCtrl = TextEditingController(text: existing != null ? existing['emi'].toString() : '');
+    final tenureCtrl = TextEditingController(text: existing != null ? existing['tenureMonths'].toString() : '');
+    final dateCtrl = TextEditingController(text: existing?['startDate'] ?? DateFormat('yyyy-MM-dd').format(DateTime.now()));
+    String type = existing?['type'] ?? 'personal';
 
     showModalBottomSheet(
       context: context, isScrollControlled: true,
@@ -40,7 +60,7 @@ class _LoansScreenState extends State<LoansScreen> {
       builder: (_) => StatefulBuilder(builder: (ctx, setSt) => SingleChildScrollView(
         padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Add Loan', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
+          Text(isEdit ? 'Edit Loan' : 'Add Loan', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
           const SizedBox(height: 16),
           TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Loan Name (e.g. HDFC Personal Loan)')),
           const SizedBox(height: 12),
@@ -68,7 +88,7 @@ class _LoansScreenState extends State<LoansScreen> {
           const SizedBox(height: 20),
           SizedBox(width: double.infinity, child: ElevatedButton(
             onPressed: () async {
-              await ApiService.instance.createLoan({
+              final data = {
                 'name': nameCtrl.text, 'lender': lenderCtrl.text, 'type': type,
                 'principal': double.tryParse(principalCtrl.text) ?? 0.0,
                 'outstanding': double.tryParse(outstandingCtrl.text) ?? 0.0,
@@ -76,11 +96,16 @@ class _LoansScreenState extends State<LoansScreen> {
                 'emi': double.tryParse(emiCtrl.text) ?? 0.0,
                 'tenureMonths': int.tryParse(tenureCtrl.text) ?? 0,
                 'startDate': dateCtrl.text,
-              });
+              };
+              if (isEdit) {
+                await ApiService.instance.updateLoan(existing['id'], data);
+              } else {
+                await ApiService.instance.createLoan(data);
+              }
               _load();
               if (mounted) Navigator.pop(context);
             },
-            child: const Text('Save Loan'),
+            child: Text(isEdit ? 'Update Loan' : 'Save Loan'),
           )),
         ]),
       )),
@@ -92,7 +117,7 @@ class _LoansScreenState extends State<LoansScreen> {
     final fmt = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
     return Scaffold(
       appBar: AppBar(title: const Text('Loans'), actions: [
-        IconButton(icon: const Icon(Icons.add_rounded), onPressed: _showAdd),
+        IconButton(icon: const Icon(Icons.add_rounded), onPressed: () => _showAddOrEdit()),
       ]),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -106,49 +131,74 @@ class _LoansScreenState extends State<LoansScreen> {
                     final principal = (loan['principal'] as num).toDouble();
                     final outstanding = (loan['outstanding'] as num).toDouble();
                     final pct = principal > 0 ? ((principal - outstanding) / principal * 100).clamp(0.0, 100.0) : 0.0;
-                    return Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Row(children: [
-                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text(loan['name'], style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-                              Text('${loan['lender'] ?? ''} · ${loan['type']}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                            ])),
-                            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                              Text(fmt.format(outstanding), style: const TextStyle(color: AppColors.accentRed, fontWeight: FontWeight.w700, fontSize: 15)),
-                              const Text('remaining', style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                    return Dismissible(
+                      key: Key(loan['id'].toString()),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 20),
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.accentRed.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.delete_outline_rounded, color: AppColors.accentRed),
+                      ),
+                      confirmDismiss: (_) => _confirmDelete(loan['name']),
+                      onDismissed: (_) async {
+                        await ApiService.instance.deleteLoan(loan['id']);
+                        _load();
+                      },
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Row(children: [
+                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text(loan['name'], style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                                Text('${loan['lender'] ?? ''} · ${loan['type']}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                              ])),
+                              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                                Text(fmt.format(outstanding), style: const TextStyle(color: AppColors.accentRed, fontWeight: FontWeight.w700, fontSize: 15)),
+                                const Text('remaining', style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                              ]),
+                            ]),
+                            const SizedBox(height: 12),
+                            LinearProgressIndicator(
+                              value: pct / 100,
+                              backgroundColor: AppColors.border,
+                              color: AppColors.accentGreen,
+                              borderRadius: BorderRadius.circular(4),
+                              minHeight: 6,
+                            ),
+                            const SizedBox(height: 6),
+                            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                              Text('${pct.toStringAsFixed(0)}% paid', style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                              Text('EMI: ${fmt.format(loan['emi'])}/mo', style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                              Text('${loan['months_remaining'] ?? 0} months left', style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                            ]),
+                            const SizedBox(height: 10),
+                            Row(children: [
+                              TextButton.icon(
+                                onPressed: () async {
+                                  final result = await ApiService.instance.payEmi(loan['id']);
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                    content: Text('EMI paid. Principal: ${fmt.format(result['principal_paid'])}, Interest: ${fmt.format(result['interest_paid'])}'),
+                                  ));
+                                  _load();
+                                },
+                                icon: const Icon(Icons.payment_rounded, size: 16),
+                                label: const Text('Pay EMI'),
+                              ),
+                              const Spacer(),
+                              IconButton(
+                                icon: const Icon(Icons.edit_outlined, size: 18, color: AppColors.accent),
+                                onPressed: () => _showAddOrEdit(existing: Map<String, dynamic>.from(loan)),
+                                tooltip: 'Edit Loan',
+                              ),
                             ]),
                           ]),
-                          const SizedBox(height: 12),
-                          LinearProgressIndicator(
-                            value: pct / 100,
-                            backgroundColor: AppColors.border,
-                            color: AppColors.accentGreen,
-                            borderRadius: BorderRadius.circular(4),
-                            minHeight: 6,
-                          ),
-                          const SizedBox(height: 6),
-                          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                            Text('${pct.toStringAsFixed(0)}% paid', style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
-                            Text('EMI: ${fmt.format(loan['emi'])}/mo', style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
-                            Text('${loan['months_remaining'] ?? 0} months left', style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
-                          ]),
-                          const SizedBox(height: 10),
-                          Row(children: [
-                            TextButton.icon(
-                              onPressed: () async {
-                                final result = await ApiService.instance.payEmi(loan['id']);
-                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                                  content: Text('EMI paid. Principal: ${fmt.format(result['principal_paid'])}, Interest: ${fmt.format(result['interest_paid'])}'),
-                                ));
-                                _load();
-                              },
-                              icon: const Icon(Icons.payment_rounded, size: 16),
-                              label: const Text('Pay EMI'),
-                            ),
-                          ]),
-                        ]),
+                        ),
                       ),
                     );
                   }),

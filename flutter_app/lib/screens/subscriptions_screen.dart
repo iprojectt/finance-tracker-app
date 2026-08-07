@@ -24,12 +24,34 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
     setState(() => _loading = false);
   }
 
-  void _showAdd() {
-    final nameCtrl = TextEditingController();
-    final amtCtrl = TextEditingController();
-    final dateCtrl = TextEditingController(text: DateFormat('yyyy-MM-dd').format(DateTime.now().add(const Duration(days: 30))));
-    String cycle = 'monthly';
-    String category = 'Entertainment';
+  Future<bool> _confirmDelete(String name) async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Delete Subscription?'),
+        content: Text('Are you sure you want to delete "$name"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
+
+  void _showAddOrEdit({Map<String, dynamic>? existing}) {
+    final isEdit = existing != null;
+    final nameCtrl = TextEditingController(text: existing?['name'] ?? '');
+    final amtCtrl = TextEditingController(text: existing != null ? existing['amount'].toString() : '');
+    final dateCtrl = TextEditingController(
+      text: existing?['nextDueDate'] ?? DateFormat('yyyy-MM-dd').format(DateTime.now().add(const Duration(days: 30))),
+    );
+    String cycle = existing?['cycle'] ?? 'monthly';
+    String category = existing?['category'] ?? 'Entertainment';
 
     showModalBottomSheet(
       context: context, isScrollControlled: true,
@@ -38,7 +60,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
       builder: (_) => StatefulBuilder(builder: (ctx, setSt) => Padding(
         padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Add Subscription', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
+          Text(isEdit ? 'Edit Subscription' : 'Add Subscription', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
           const SizedBox(height: 16),
           TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Name (Netflix, Spotify, JioHotstar)')),
           const SizedBox(height: 12),
@@ -62,18 +84,23 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
           const SizedBox(height: 20),
           SizedBox(width: double.infinity, child: ElevatedButton(
             onPressed: () async {
-              await ApiService.instance.createSubscription({
+              final data = {
                 'name': nameCtrl.text,
                 'amount': double.tryParse(amtCtrl.text) ?? 0.0,
                 'cycle': cycle,
                 'category': category,
                 'nextDueDate': dateCtrl.text,
-                'active': true,
-              });
+                'active': existing?['active'] ?? true,
+              };
+              if (isEdit) {
+                await ApiService.instance.updateSubscription(existing['id'], data);
+              } else {
+                await ApiService.instance.createSubscription(data);
+              }
               _load();
               if (mounted) Navigator.pop(context);
             },
-            child: const Text('Save Subscription'),
+            child: Text(isEdit ? 'Update Subscription' : 'Save Subscription'),
           )),
         ]),
       )),
@@ -90,7 +117,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Subscriptions'), actions: [
-        IconButton(icon: const Icon(Icons.add_rounded), onPressed: _showAdd),
+        IconButton(icon: const Icon(Icons.add_rounded), onPressed: () => _showAddOrEdit()),
       ]),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -117,28 +144,44 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
                         itemBuilder: (ctx, i) {
                           final sub = _subs[i];
                           final active = sub['active'] ?? true;
-                          return Card(
-                            child: ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: active ? AppColors.accent.withOpacity(0.15) : AppColors.surfaceAlt,
-                                child: Icon(Icons.subscriptions_rounded, color: active ? AppColors.accent : AppColors.textSecondary, size: 18),
+                          return Dismissible(
+                            key: Key(sub['id'].toString()),
+                            direction: DismissDirection.endToStart,
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppColors.accentRed.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(12),
                               ),
-                              title: Text(sub['name'], style: TextStyle(fontWeight: FontWeight.w600, decoration: active ? null : TextDecoration.lineThrough)),
-                              subtitle: Text('${sub['cycle']} · Next due: ${sub['nextDueDate']}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                                Text(fmt.format(sub['amount']), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                                Switch(
-                                  value: active,
-                                  onChanged: (_) async {
-                                    await ApiService.instance.toggleSubscription(sub['id']);
-                                    _load();
-                                  },
+                              child: const Icon(Icons.delete_outline_rounded, color: AppColors.accentRed),
+                            ),
+                            confirmDismiss: (_) => _confirmDelete(sub['name']),
+                            onDismissed: (_) async {
+                              await ApiService.instance.deleteSubscription(sub['id']);
+                              _load();
+                            },
+                            child: Card(
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: active ? AppColors.accent.withOpacity(0.15) : AppColors.surfaceAlt,
+                                  child: Icon(Icons.subscriptions_rounded, color: active ? AppColors.accent : AppColors.textSecondary, size: 18),
                                 ),
-                              ]),
-                              onLongPress: () async {
-                                await ApiService.instance.deleteSubscription(sub['id']);
-                                _load();
-                              },
+                                title: Text(sub['name'], style: TextStyle(fontWeight: FontWeight.w600, decoration: active ? null : TextDecoration.lineThrough)),
+                                subtitle: Text('${sub['cycle']} · Next due: ${sub['nextDueDate']}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                                  Text(fmt.format(sub['amount']), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                                  Switch(
+                                    value: active,
+                                    onChanged: (_) async {
+                                      await ApiService.instance.toggleSubscription(sub['id']);
+                                      _load();
+                                    },
+                                  ),
+                                ]),
+                                onTap: () => _showAddOrEdit(existing: Map<String, dynamic>.from(sub)),
+                              ),
                             ),
                           );
                         }),

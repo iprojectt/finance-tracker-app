@@ -31,8 +31,20 @@ def update_account(account_id: str, payload: AccountUpdate, user_id: str = "defa
         raise HTTPException(status_code=404, detail="Account not found")
     return doc
 
+@router.put("/{account_id}")
+def replace_account(account_id: str, payload: AccountUpdate, user_id: str = "default_user"):
+    existing = store.get_doc(user_id, "accounts", account_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Account not found")
+    updates = {k: v for k, v in payload.dict().items() if v is not None}
+    if not updates:
+        return existing
+    doc = store.update_doc(user_id, "accounts", account_id, updates)
+    return doc
+
 @router.delete("/{account_id}", status_code=204)
 def delete_account(account_id: str, user_id: str = "default_user"):
     success = store.delete_doc(user_id, "accounts", account_id)
     if not success:
         raise HTTPException(status_code=404, detail="Account not found")
+

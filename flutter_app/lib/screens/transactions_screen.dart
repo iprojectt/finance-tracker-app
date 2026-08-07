@@ -42,14 +42,38 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     }
   }
 
-  void _showAddDialog() {
+  void _showAddOrEdit({Map<String, dynamic>? existing}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => _AddTransactionSheet(accounts: _accounts, categories: _categories, onSaved: _load),
+      builder: (_) => _TransactionSheet(
+        accounts: _accounts,
+        categories: _categories,
+        onSaved: _load,
+        existing: existing,
+      ),
     );
+  }
+
+  Future<bool> _confirmDelete(String name) async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Delete Transaction?'),
+        content: Text('Are you sure you want to delete "$name"? This will also reverse the account balance change.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    ) ?? false;
   }
 
   @override
@@ -59,7 +83,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       appBar: AppBar(
         title: const Text('Transactions'),
         actions: [
-          IconButton(icon: const Icon(Icons.add_rounded), onPressed: _showAddDialog),
+          IconButton(icon: const Icon(Icons.add_rounded), onPressed: () => _showAddOrEdit()),
         ],
       ),
       body: _loading
@@ -72,25 +96,42 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                     final t = _txns[i];
                     final isCredit = t['type'] == 'credit';
                     final subcat = t['subcategory'] != null ? ' · ${t['subcategory']}' : '';
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: isCredit ? AppColors.accentGreen.withOpacity(0.15) : AppColors.accentRed.withOpacity(0.15),
-                        child: Icon(
-                          isCredit ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
-                          color: isCredit ? AppColors.accentGreen : AppColors.accentRed,
-                          size: 18,
+                    final desc = t['description'] ?? t['category'] ?? '-';
+                    return Dismissible(
+                      key: Key(t['id'].toString()),
+                      direction: DismissDirection.endToStart,
+                      background: Container(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 20),
+                        margin: const EdgeInsets.symmetric(vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.accentRed.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
                         ),
+                        child: const Icon(Icons.delete_outline_rounded, color: AppColors.accentRed),
                       ),
-                      title: Text(t['description'] ?? t['category'] ?? '-', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                      subtitle: Text('${t['category']}$subcat · ${t['date']}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                      trailing: Text(
-                        '${isCredit ? '+' : '-'}${fmt.format(t['amount'])}',
-                        style: TextStyle(color: isCredit ? AppColors.accentGreen : AppColors.accentRed, fontWeight: FontWeight.w600),
-                      ),
-                      onLongPress: () async {
+                      confirmDismiss: (_) => _confirmDelete(desc),
+                      onDismissed: (_) async {
                         await ApiService.instance.deleteTransaction(t['id']);
                         _load();
                       },
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: isCredit ? AppColors.accentGreen.withOpacity(0.15) : AppColors.accentRed.withOpacity(0.15),
+                          child: Icon(
+                            isCredit ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                            color: isCredit ? AppColors.accentGreen : AppColors.accentRed,
+                            size: 18,
+                          ),
+                        ),
+                        title: Text(desc, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                        subtitle: Text('${t['category']}$subcat · ${t['date']}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                        trailing: Text(
+                          '${isCredit ? '+' : '-'}${fmt.format(t['amount'])}',
+                          style: TextStyle(color: isCredit ? AppColors.accentGreen : AppColors.accentRed, fontWeight: FontWeight.w600),
+                        ),
+                        onTap: () => _showAddOrEdit(existing: Map<String, dynamic>.from(t)),
+                      ),
                     );
                   },
                 ),
@@ -98,17 +139,18 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   }
 }
 
-class _AddTransactionSheet extends StatefulWidget {
+class _TransactionSheet extends StatefulWidget {
   final List<dynamic> accounts;
   final List<dynamic> categories;
   final VoidCallback onSaved;
-  const _AddTransactionSheet({required this.accounts, required this.categories, required this.onSaved});
+  final Map<String, dynamic>? existing;
+  const _TransactionSheet({required this.accounts, required this.categories, required this.onSaved, this.existing});
 
   @override
-  State<_AddTransactionSheet> createState() => _AddTransactionSheetState();
+  State<_TransactionSheet> createState() => _TransactionSheetState();
 }
 
-class _AddTransactionSheetState extends State<_AddTransactionSheet> {
+class _TransactionSheetState extends State<_TransactionSheet> {
   final _formKey = GlobalKey<FormState>();
   final _amountCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
@@ -119,13 +161,26 @@ class _AddTransactionSheetState extends State<_AddTransactionSheet> {
   String? _accountId;
   bool _saving = false;
 
+  bool get _isEdit => widget.existing != null;
+
   @override
   void initState() {
     super.initState();
-    if (widget.categories.isNotEmpty) {
-      _category = widget.categories.first['name'];
-      final List subs = widget.categories.first['subcategories'] ?? [];
-      if (subs.isNotEmpty) _subcategory = subs.first.toString();
+    if (_isEdit) {
+      final e = widget.existing!;
+      _amountCtrl.text = (e['amount'] ?? 0).toString();
+      _descCtrl.text = e['description'] ?? '';
+      _type = e['type'] ?? 'debit';
+      _category = e['category'];
+      _subcategory = e['subcategory'];
+      _date = e['date'] ?? _date;
+      _accountId = e['accountId']?.toString();
+    } else {
+      if (widget.categories.isNotEmpty) {
+        _category = widget.categories.first['name'];
+        final List subs = widget.categories.first['subcategories'] ?? [];
+        if (subs.isNotEmpty) _subcategory = subs.first.toString();
+      }
     }
   }
 
@@ -133,7 +188,7 @@ class _AddTransactionSheetState extends State<_AddTransactionSheet> {
     if (!_formKey.currentState!.validate() || _accountId == null) return;
     setState(() => _saving = true);
     try {
-      await ApiService.instance.createTransaction({
+      final data = {
         'accountId': _accountId,
         'amount': double.parse(_amountCtrl.text),
         'type': _type,
@@ -141,8 +196,13 @@ class _AddTransactionSheetState extends State<_AddTransactionSheet> {
         'subcategory': _subcategory,
         'description': _descCtrl.text,
         'date': _date,
-        'source': 'manual',
-      });
+      };
+      if (_isEdit) {
+        await ApiService.instance.updateTransaction(widget.existing!['id'], data);
+      } else {
+        data['source'] = 'manual';
+        await ApiService.instance.createTransaction(data);
+      }
       widget.onSaved();
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -165,7 +225,7 @@ class _AddTransactionSheetState extends State<_AddTransactionSheet> {
         child: Form(
           key: _formKey,
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Add Transaction', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
+          Text(_isEdit ? 'Edit Transaction' : 'Add Transaction', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
           const SizedBox(height: 20),
           Row(children: [
             Expanded(child: _TypeButton(label: 'Expense', selected: _type == 'debit', color: AppColors.accentRed,
@@ -223,7 +283,7 @@ class _AddTransactionSheetState extends State<_AddTransactionSheet> {
                   isExpanded: true,
                   dropdownColor: AppColors.surfaceAlt,
                   decoration: const InputDecoration(labelText: 'Subcategory'),
-                  value: _subcategory,
+                  value: subcategories.contains(_subcategory) ? _subcategory : (subcategories.isNotEmpty ? subcategories.first.toString() : null),
                   items: subcategories.map<DropdownMenuItem<String>>((s) =>
                     DropdownMenuItem(value: s.toString(), child: Text(s.toString()))).toList(),
                   onChanged: (v) => setState(() => _subcategory = v),
@@ -242,7 +302,9 @@ class _AddTransactionSheetState extends State<_AddTransactionSheet> {
             width: double.infinity,
             child: ElevatedButton(
               onPressed: _saving ? null : _save,
-              child: _saving ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Save'),
+              child: _saving
+                  ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                  : Text(_isEdit ? 'Update' : 'Save'),
             ),
           ),
         ]),

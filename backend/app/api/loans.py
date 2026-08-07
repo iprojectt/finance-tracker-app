@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from app.models.schemas import LoanCreate
+from app.models.schemas import LoanCreate, LoanUpdate
 from app.db.firestore_service import store
 from datetime import datetime
 
@@ -97,8 +97,20 @@ def record_emi_payment(loan_id: str, user_id: str = "default_user"):
         "principal_paid": round(principal_paid, 2)
     }
 
+@router.put("/{loan_id}")
+def update_loan(loan_id: str, payload: LoanUpdate, user_id: str = "default_user"):
+    existing = store.get_doc(user_id, "loans", loan_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Loan not found")
+    updates = {k: v for k, v in payload.dict().items() if v is not None}
+    if not updates:
+        return existing
+    doc = store.update_doc(user_id, "loans", loan_id, updates)
+    return doc
+
 @router.delete("/{loan_id}", status_code=204)
 def delete_loan(loan_id: str, user_id: str = "default_user"):
     success = store.delete_doc(user_id, "loans", loan_id)
     if not success:
         raise HTTPException(status_code=404, detail="Loan not found")
+

@@ -109,3 +109,50 @@ class CategoryCreate(BaseModel):
 class Category(CategoryCreate):
     id: str
     createdAt: str
+
+# ── Update Schemas (all fields optional) ───────────────────
+class TransactionUpdate(BaseModel):
+    accountId: Optional[str] = None
+    amount: Optional[float] = None
+    type: Optional[str] = None
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
+    description: Optional[str] = None
+    date: Optional[str] = None
+
+class InvestmentUpdate(BaseModel):
+    name: Optional[str] = None
+    type: Optional[str] = None
+    subtype: Optional[str] = None
+    platform: Optional[str] = None
+    investedAmount: Optional[float] = None
+    currentValue: Optional[float] = None
+    units: Optional[float] = None
+    startDate: Optional[str] = None
+
+class LoanUpdate(BaseModel):
+    name: Optional[str] = None
+    type: Optional[str] = None
+    lender: Optional[str] = None
+    principal: Optional[float] = None
+    outstanding: Optional[float] = None
+    interestRate: Optional[float] = None
+    emi: Optional[float] = None
+    tenureMonths: Optional[int] = None
+    startDate: Optional[str] = None
+
+class SubscriptionUpdate(BaseModel):
+    name: Optional[str] = None
+    amount: Optional[float] = None
+    cycle: Optional[str] = None
+    nextDueDate: Optional[str] = None
+    category: Optional[str] = None
+    active: Optional[bool] = None
+
+class GoalUpdate(BaseModel):
+    name: Optional[str] = None
+    targetAmount: Optional[float] = None
+    savedAmount: Optional[float] = None
+    deadline: Optional[str] = None
+    category: Optional[str] = None
+
